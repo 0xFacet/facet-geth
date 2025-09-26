@@ -61,6 +61,12 @@ fi
 # Set default RPC gas cap if not provided
 RPC_GAS_CAP=${RPC_GAS_CAP:-500000000}
 
+# Set default cache size if not provided
+CACHE_SIZE=${CACHE_SIZE:-10000}
+
+# Set default auth RPC port if not provided
+AUTH_RPC_PORT=${AUTH_RPC_PORT:-8551}
+
 # Build override flags
 OVERRIDE_FLAGS=""
 if [ ! -z "$BLUEBIRD_TIMESTAMP" ]; then
@@ -78,10 +84,10 @@ exec geth \
   --http.corsdomain="*" \
   --authrpc.addr "0.0.0.0" \
   --authrpc.vhosts="*" \
-  --authrpc.port 8551 \
+  --authrpc.port $AUTH_RPC_PORT \
   --authrpc.jwtsecret /tmp/jwtsecret \
   --nodiscover \
-  --cache 25000 \
+  --cache $CACHE_SIZE \
   --cache.preimages \
   --maxpeers 0 \
   --rpc.gascap $RPC_GAS_CAP \
