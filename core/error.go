@@ -119,3 +119,30 @@ var (
 	// ErrTxGasLimitTooHigh is returned if a transaction's gas limit is too high.
 	ErrTxGasLimitTooHigh = errors.New("transaction gas limit too high")
 )
+
+// IsPreFlightError returns true if err is a pre-flight consensus error that prevents
+// transaction inclusion but should not invalidate the entire block. These errors
+// can be safely filtered when building blocks in rollup mode.
+func IsPreFlightError(err error) bool {
+	// Pre-flight errors that prevent transaction from being included
+	return errors.Is(err, ErrNonceTooLow) ||
+		errors.Is(err, ErrNonceTooHigh) ||
+		errors.Is(err, ErrNonceMax) ||
+		errors.Is(err, ErrInsufficientFunds) ||
+		errors.Is(err, ErrInsufficientFundsForTransfer) ||
+		errors.Is(err, ErrIntrinsicGas) ||
+		errors.Is(err, ErrGasLimitReached) ||
+		errors.Is(err, ErrTxGasLimitTooHigh) ||
+		errors.Is(err, ErrFeeCapTooLow) ||
+		errors.Is(err, ErrSenderNoEOA) ||
+		errors.Is(err, ErrBlobFeeCapTooLow) ||
+		errors.Is(err, ErrMissingBlobHashes) ||
+		errors.Is(err, ErrBlobTxCreate) ||
+		errors.Is(err, ErrTipAboveFeeCap) ||
+		errors.Is(err, ErrTipVeryHigh) ||
+		errors.Is(err, ErrFeeCapVeryHigh) ||
+		errors.Is(err, ErrGasUintOverflow) ||
+		errors.Is(err, ErrInsufficientBalanceWitness) ||
+		errors.Is(err, ErrMaxInitCodeSizeExceeded)
+	// Note: ErrSystemTxNotSupported removed as system txs are never filtered
+}
