@@ -185,7 +185,7 @@ func (miner *Miner) generateWork(params *generateParams) *newPayloadResult {
 			// For all other errors or when not in filtering mode, fail the block
 			return &newPayloadResult{err: fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)}
 		}
-		work.tcount++
+		// Note: work.tcount is already incremented by commitTransaction
 	}
 
 	// Log summary of filtering if any occurred
