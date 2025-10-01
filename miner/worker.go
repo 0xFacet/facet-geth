@@ -104,6 +104,26 @@ type generateParams struct {
 }
 
 // generateWork generates a sealing block based on the given parameters.
+//
+// Transaction Filtering (Optimism/Rollup Mode):
+// When params.noTxs is true (forced-only mode), the function will filter out
+// invalid transactions instead of failing the entire block. This allows
+// consensus clients to submit transactions without pre-validating state.
+//
+// Filtered transactions (excluded from block):
+// - Pre-flight consensus errors: wrong nonce, insufficient funds, intrinsic gas, etc.
+// - Blob transactions without sidecars (prevents panic)
+//
+// NEVER filtered (always fail block if invalid):
+// - Deposit transactions (required for rollup consensus)
+// - System transactions (critical for rollup operation)
+//
+// Note: Runtime/EVM errors don't surface as err in commitTransaction - they
+// produce successful transaction inclusion with failed receipts and are not
+// filtered.
+//
+// The consensus client can compare the returned block's transaction list
+// with what was submitted to see what was filtered.
 func (miner *Miner) generateWork(params *generateParams) *newPayloadResult {
 	work, err := miner.prepareWork(params)
 	if err != nil {
@@ -119,14 +139,61 @@ func (miner *Miner) generateWork(params *generateParams) *newPayloadResult {
 
 	misc.EnsureCreate2Deployer(miner.chainConfig, work.header.Time, work.state)
 
+	// Track filtered transaction count for logging
+	var filteredCount int
+
 	for _, tx := range params.txs {
 		from, _ := types.Sender(work.signer, tx)
+
+		// Check for blob transactions without sidecars (must filter to prevent panic)
+		if tx.Type() == types.BlobTxType && tx.BlobTxSidecar() == nil {
+			if params.noTxs { // Only filter in no-txpool mode
+				log.Info("Filtering blob tx missing sidecar",
+					"hash", tx.Hash(),
+					"from", from)
+				filteredCount++
+				continue
+			}
+			// In normal mode, fail the block
+			return &newPayloadResult{err: fmt.Errorf("blob transaction missing sidecar: %s", tx.Hash())}
+		}
+
 		work.state.SetTxContext(tx.Hash(), work.tcount)
 		err = miner.commitTransaction(work, tx)
 		if err != nil {
+			// CRITICAL: Never filter deposit transactions - they must be included for rollup consensus
+			if tx.IsDepositTx() {
+				return &newPayloadResult{err: fmt.Errorf("failed to include deposit tx: %s nonce: %d, err: %w", tx.Hash(), tx.Nonce(), err)}
+			}
+
+			// CRITICAL: Never filter system transactions
+			if tx.IsSystemTx() {
+				return &newPayloadResult{err: fmt.Errorf("failed to include system tx: %s, err: %w", tx.Hash(), err)}
+			}
+
+			// In no-txpool mode, filter pre-flight errors for regular transactions
+			if params.noTxs && core.IsPreFlightError(err) {
+				log.Info("Filtering invalid forced tx",
+					"hash", tx.Hash(),
+					"from", from,
+					"nonce", tx.Nonce(),
+					"err", err)
+				filteredCount++
+				continue // Skip this transaction
+			}
+
+			// For all other errors or when not in filtering mode, fail the block
 			return &newPayloadResult{err: fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)}
 		}
-		work.tcount++
+		// Note: work.tcount is already incremented by commitTransaction
+	}
+
+	// Log summary of filtering if any occurred
+	if filteredCount > 0 {
+		log.Info("Filtered invalid transactions from payload",
+			"filtered", filteredCount,
+			"total", len(params.txs),
+			"included", len(params.txs)-filteredCount)
 	}
 	if !params.noTxs {
 		// use shared interrupt if present
